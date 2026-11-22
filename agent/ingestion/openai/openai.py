@@ -6,11 +6,24 @@ from datetime import datetime, timezone
 
 import feedparser
 import httpx
+import trafilatura
 from sqlalchemy import text
 
 from app.database import engine
 
 OPENAI_NEWS_URL = "https://openai.com/news/rss.xml"
+
+
+async def read_article(client, url):
+    """Download one article page and return its main text."""
+    try:
+        response = await client.get(url)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return ""
+
+    text_content = trafilatura.extract(response.text) or ""
+    return " ".join(text_content.split())
 
 
 def save_articles_to_db(articles):
@@ -39,10 +52,18 @@ def save_articles_to_db(articles):
             CAST(:categories AS JSONB),
             :content_hash
         )
-        ON CONFLICT (external_id) DO NOTHING
+        ON CONFLICT (external_id) DO UPDATE SET
+            title = EXCLUDED.title,
+            content = EXCLUDED.content,
+            url = EXCLUDED.url,
+            published_at = EXCLUDED.published_at,
+            updated_at = EXCLUDED.updated_at,
+            content_hash = EXCLUDED.content_hash
+        RETURNING (xmax = 0) AS inserted
     """)
 
     saved_count = 0
+    updated_count = 0
 
     with engine.begin() as connection:
         for article in articles:
@@ -67,50 +88,58 @@ def save_articles_to_db(articles):
                 },
             )
 
-            if result.rowcount == 1:
+            if result.scalar():
                 saved_count += 1
+            else:
+                updated_count += 1
 
-    return saved_count
+    return saved_count, updated_count
 
 
 async def fetch_openai_news(max_results: int = 10):
 
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with httpx.AsyncClient(
+        timeout=30,
+        follow_redirects=True,
+        headers={"User-Agent": "sentinel-ai/1.0"},
+    ) as client:
         response = await client.get(OPENAI_NEWS_URL)
         response.raise_for_status()
 
-    feed = feedparser.parse(response.content)
+        feed = feedparser.parse(response.content)
 
-    articles = []
+        articles = []
 
-    for entry in feed.entries[:max_results]:
+        for entry in feed.entries[:max_results]:
 
-        link = entry.get("link")
-        title = entry.get("title")
+            link = entry.get("link")
+            title = entry.get("title")
 
-        if not link or not title:
-            continue
+            if not link or not title:
+                continue
 
-        published = entry.get("published_parsed")
+            published = entry.get("published_parsed")
 
-        published_at = (
-            datetime.fromtimestamp(
-                calendar.timegm(published),
-                tz=timezone.utc
+            published_at = (
+                datetime.fromtimestamp(
+                    calendar.timegm(published),
+                    tz=timezone.utc
+                )
+                if published else None
             )
-            if published else None
-        )
 
-        articles.append({
-            "source": "openai_news",
-            "external_id": entry.get("id") or link,
-            "title": title,
-            "url": link,
-            "summary": entry.get("summary", ""),
-            "published_at": published_at
-        })
+            body = await read_article(client, link)
 
-    saved_count = await asyncio.to_thread(
+            articles.append({
+                "source": "openai_news",
+                "external_id": entry.get("id") or link,
+                "title": title,
+                "url": link,
+                "summary": body or entry.get("summary", ""),
+                "published_at": published_at
+            })
+
+    saved_count, updated_count = await asyncio.to_thread(
         save_articles_to_db,
         articles
     )
@@ -118,6 +147,6 @@ async def fetch_openai_news(max_results: int = 10):
     return {
         "fetched": len(articles),
         "saved": saved_count,
-        "duplicates_skipped": len(articles) - saved_count,
+        "updated": updated_count,
         "articles": articles,
     }

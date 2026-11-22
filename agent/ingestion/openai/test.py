@@ -17,13 +17,14 @@ async def main():
 
     print("Fetched:", result["fetched"])
     print("Saved:", result["saved"])
-    print("Duplicates:", result["duplicates_skipped"])
+    print("Updated:", result["updated"])
 
     for article in result["articles"]:
         print("\n-------------------------")
         print("Title:", article["title"])
         print("URL:", article["url"])
         print("Published:", article["published_at"])
+        print("Content length:", len(article["summary"]))
 
 
 asyncio.run(main())
