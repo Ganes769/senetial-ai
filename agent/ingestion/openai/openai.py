@@ -1,0 +1,123 @@
+import asyncio
+import calendar
+import hashlib
+import json
+from datetime import datetime, timezone
+
+import feedparser
+import httpx
+from sqlalchemy import text
+
+from app.database import engine
+
+OPENAI_NEWS_URL = "https://openai.com/news/rss.xml"
+
+
+def save_articles_to_db(articles):
+    insert_query = text("""
+        INSERT INTO documents (
+            external_id,
+            source_name,
+            title,
+            content,
+            authors,
+            published_at,
+            updated_at,
+            url,
+            categories,
+            content_hash
+        )
+        VALUES (
+            :external_id,
+            :source_name,
+            :title,
+            :content,
+            CAST(:authors AS JSONB),
+            :published_at,
+            :updated_at,
+            :url,
+            CAST(:categories AS JSONB),
+            :content_hash
+        )
+        ON CONFLICT (external_id) DO NOTHING
+    """)
+
+    saved_count = 0
+
+    with engine.begin() as connection:
+        for article in articles:
+            summary = article["summary"]
+            content_hash = hashlib.sha256(
+                (summary or article["url"]).encode("utf-8")
+            ).hexdigest()
+
+            result = connection.execute(
+                insert_query,
+                {
+                    "external_id": article["external_id"],
+                    "source_name": article["source"],
+                    "title": article["title"],
+                    "content": summary,
+                    "authors": json.dumps([]),
+                    "published_at": article["published_at"],
+                    "updated_at": article["published_at"],
+                    "url": article["url"],
+                    "categories": json.dumps(["openai_news"]),
+                    "content_hash": content_hash,
+                },
+            )
+
+            if result.rowcount == 1:
+                saved_count += 1
+
+    return saved_count
+
+
+async def fetch_openai_news(max_results: int = 10):
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.get(OPENAI_NEWS_URL)
+        response.raise_for_status()
+
+    feed = feedparser.parse(response.content)
+
+    articles = []
+
+    for entry in feed.entries[:max_results]:
+
+        link = entry.get("link")
+        title = entry.get("title")
+
+        if not link or not title:
+            continue
+
+        published = entry.get("published_parsed")
+
+        published_at = (
+            datetime.fromtimestamp(
+                calendar.timegm(published),
+                tz=timezone.utc
+            )
+            if published else None
+        )
+
+        articles.append({
+            "source": "openai_news",
+            "external_id": entry.get("id") or link,
+            "title": title,
+            "url": link,
+            "summary": entry.get("summary", ""),
+            "published_at": published_at
+        })
+
+    saved_count = await asyncio.to_thread(
+        save_articles_to_db,
+        articles
+    )
+
+    return {
+        "fetched": len(articles),
+        "saved": saved_count,
+        "duplicates_skipped": len(articles) - saved_count,
+        "articles": articles,
+    }
