@@ -2,6 +2,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.routes.agent_status import router as agent_router
+from api.routes.discoveries import router as discoveries_router
 from api.routes.ingestion import router as ingestion_router
 from api.routes.theme import router as themes_router
 
@@ -22,6 +24,8 @@ app.add_middleware(
 
 app.include_router(themes_router)
 app.include_router(ingestion_router)
+app.include_router(discoveries_router)
+app.include_router(agent_router)
 
 @app.get("/")
 def root():

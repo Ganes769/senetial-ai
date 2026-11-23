@@ -104,7 +104,7 @@ async def fetch_recent_papers(max_results: int = 10):
         "sortOrder": "descending",
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
 
         response = await client.get(
             ARXIV_API_URL,
