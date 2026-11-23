@@ -1,8 +1,16 @@
 import asyncio
 import json
 import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, TypedDict
+
+# Celery worker processes do not keep the project root on sys.path.
+# agent is already imported; schema is not.
+ROOT = str(Path(__file__).resolve().parents[1])
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from dotenv import load_dotenv
 from langchain_ollama import ChatOllama

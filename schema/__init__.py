@@ -1,3 +1,3 @@
-from schema.schema import ItemAnalysis
+from .schema import ItemAnalysis
 
 __all__ = ["ItemAnalysis"]

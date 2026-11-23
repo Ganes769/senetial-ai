@@ -1,8 +1,16 @@
 import os
 import ssl
+import sys
+from pathlib import Path
 
 from celery import Celery
 from dotenv import load_dotenv
+
+# Celery adds the project directory only while importing this app, then
+# removes that entry. Append a second copy so schema stays importable
+# inside spawned worker processes.
+ROOT = str(Path(__file__).resolve().parents[1])
+sys.path.append(ROOT)
 
 load_dotenv()
 
