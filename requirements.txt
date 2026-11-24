@@ -26,3 +26,4 @@ ruff
 httpx 
 feedparser
 langchain_ollama
+pydantic
