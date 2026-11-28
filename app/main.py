@@ -8,6 +8,7 @@ from api.routes.discoveries import router as discoveries_router
 from api.routes.ingestion import router as ingestion_router
 from api.routes.runs import router as runs_router
 from api.routes.theme import router as themes_router
+from api.routes.github import router as github_router
 
 app = FastAPI(title="Sentinel AI API")
 
@@ -30,6 +31,8 @@ app.include_router(discoveries_router)
 app.include_router(agent_router)
 app.include_router(runs_router)
 app.include_router(activity_router)
+app.include_router(github_router)
+
 
 @app.get("/")
 def root():
